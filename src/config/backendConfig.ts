@@ -2,11 +2,7 @@
  * Backend API Configuration
  */
 
-// Ambient declaration for React Native runtime environment
-declare const process: { env?: Record<string, string | undefined> } | undefined;
+import Config from 'react-native-config';
 
-// SIH Demo: Use teammate's ngrok backend.
-// Override with BACKEND_URL env var if needed for local development.
 export const BACKEND_URL: string =
-  (typeof process !== 'undefined' && process?.env?.BACKEND_URL) ||
-  'https://mckenna-appeasable-dayna.ngrok-free.dev';
+  Config.BACKEND_URL || 'http://10.0.2.2:8000';

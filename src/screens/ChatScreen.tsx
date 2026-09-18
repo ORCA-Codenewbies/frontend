@@ -131,8 +131,8 @@ export const ChatScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flexContainer}>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.safeArea}>
+      <SafeAreaView style={styles.flexContainer}>
         <Header showBackButton title="ORCA Assistant" />
 
         <View style={styles.subHeaderBar}>
@@ -169,7 +169,7 @@ export const ChatScreen: React.FC = () => {
         />
 
         <PromptInput placeholder="Ask ORCA anything…" />
-      </KeyboardAvoidingView>
+      </SafeAreaView>
 
       {/* Full-Screen Analytics Modal overlay */}
       <AnalyticsModal
@@ -177,7 +177,7 @@ export const ChatScreen: React.FC = () => {
         analytics={selectedAnalytics}
         onClose={() => setAnalyticsVisible(false)}
       />
-    </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 };
 

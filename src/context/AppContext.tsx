@@ -54,6 +54,21 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | null>(null);
 
+const generateSessionId = (): string => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(
+    /[xy]/g,
+    (char) => {
+      const random = Math.floor(Math.random() * 16);
+      const value =
+        char === 'x'
+          ? random
+          : (random & 0x3) | 0x8;
+
+      return value.toString(16);
+    }
+  );
+};
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Supabase Auth state (Unknown/loading until session check resolves)
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
@@ -80,6 +95,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Conversational chat
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   // Saved items
   const [savedItems, setSavedItems] = useState<SavedItem[]>(SAMPLE_SAVED);
@@ -279,6 +295,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsAuthenticated(false);
       setCurrentScreen('AUTH');
       setMessages([]);
+      setActiveSessionId(null);
     }
   }, []);
 
@@ -351,10 +368,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setMessages((prev) => [...prev, userMessage, placeholderMsg]);
       setIsAnalyzing(true);
 
+      let currentSessionId = activeSessionId;
+      if (!currentSessionId) {
+        currentSessionId = generateSessionId();
+        setActiveSessionId(currentSessionId);
+      }
+
       try {
         const response: OrcaResponse = await OrcaService.queryOrca(
           queryText,
           currentLocation.name,
+          currentSessionId,
           (step) => {
             setMessages((prev) =>
               prev.map((msg) =>
@@ -410,11 +434,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsAnalyzing(false);
       }
     },
-    [currentLocation.name]
+    [currentLocation.name, activeSessionId]
   );
 
   const startNewChat = useCallback(() => {
     setMessages([]);
+    setActiveSessionId(null);
     setIsDrawerOpen(false);
     navigateTo('DASHBOARD');
   }, [navigateTo]);

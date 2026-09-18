@@ -29,7 +29,7 @@ describe('OrcaService Real Backend Integration', () => {
       json: async () => ({ response: 'Mock backend response', action: 'Respond' }),
     });
 
-    const res = await OrcaService.queryOrca('hello', 'Digha');
+    const res = await OrcaService.queryOrca('hello', 'Digha', null);
     expect(res.message).toBe('Mock backend response');
     expect(res.isError).toBeUndefined();
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -51,7 +51,7 @@ describe('OrcaService Real Backend Integration', () => {
       error: null,
     });
 
-    const res = await OrcaService.queryOrca('hello', 'Digha');
+    const res = await OrcaService.queryOrca('hello', 'Digha', null);
     expect(res.isError).toBe(true);
     expect(res.errorType).toBe('technical_failure');
     expect(res.errorMessage).toContain('Authentication failed');
@@ -64,7 +64,7 @@ describe('OrcaService Real Backend Integration', () => {
     });
     (globalThis.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 401 });
 
-    const res = await OrcaService.queryOrca('hello', 'Digha');
+    const res = await OrcaService.queryOrca('hello', 'Digha', null);
     expect(res.isError).toBe(true);
     expect(res.errorMessage).toBe('Not authorized to access ORCA.');
   });
@@ -76,7 +76,7 @@ describe('OrcaService Real Backend Integration', () => {
     });
     (globalThis.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 403 });
 
-    const res = await OrcaService.queryOrca('hello', 'Digha');
+    const res = await OrcaService.queryOrca('hello', 'Digha', null);
     expect(res.isError).toBe(true);
     expect(res.errorMessage).toBe('Not authorized to access ORCA.');
   });
@@ -88,7 +88,7 @@ describe('OrcaService Real Backend Integration', () => {
     });
     (globalThis.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 429 });
 
-    const res = await OrcaService.queryOrca('hello', 'Digha');
+    const res = await OrcaService.queryOrca('hello', 'Digha', null);
     expect(res.isError).toBe(true);
     expect(res.errorMessage).toBe('Too many requests. Please try again later.');
   });
@@ -100,7 +100,7 @@ describe('OrcaService Real Backend Integration', () => {
     });
     (globalThis.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500 });
 
-    const res = await OrcaService.queryOrca('hello', 'Digha');
+    const res = await OrcaService.queryOrca('hello', 'Digha', null);
     expect(res.isError).toBe(true);
     expect(res.errorMessage).toBe('ORCA backend is experiencing issues.');
   });
@@ -112,7 +112,7 @@ describe('OrcaService Real Backend Integration', () => {
     });
     (globalThis.fetch as jest.Mock).mockRejectedValue(new Error('Network error'));
 
-    const res = await OrcaService.queryOrca('hello', 'Digha');
+    const res = await OrcaService.queryOrca('hello', 'Digha', null);
     expect(res.isError).toBe(true);
     expect(res.errorMessage).toBe('Failed to connect to ORCA backend.');
   });
@@ -126,7 +126,7 @@ describe('OrcaService Real Backend Integration', () => {
     abortError.name = 'AbortError';
     (globalThis.fetch as jest.Mock).mockRejectedValue(abortError);
 
-    const res = await OrcaService.queryOrca('hello', 'Digha');
+    const res = await OrcaService.queryOrca('hello', 'Digha', null);
     expect(res.isError).toBe(true);
     expect(res.errorMessage).toBe('Request to ORCA timed out.');
   });
@@ -141,7 +141,7 @@ describe('OrcaService Real Backend Integration', () => {
       json: async () => { throw new SyntaxError('Malformed JSON'); },
     });
 
-    const res = await OrcaService.queryOrca('hello', 'Digha');
+    const res = await OrcaService.queryOrca('hello', 'Digha', null);
     expect(res.isError).toBe(true);
     expect(res.errorMessage).toBe('Failed to connect to ORCA backend.');
   });

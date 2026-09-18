@@ -12,6 +12,7 @@ export class OrcaService {
   public static async queryOrca(
     rawQuery: string,
     currentLocationName: string,
+    sessionId: string | null,
     onAnalysisStep?: (step: AnalysisStep) => void
   ): Promise<OrcaResponse> {
     if (onAnalysisStep) {
@@ -34,14 +35,14 @@ export class OrcaService {
       // 2. Prepare request payload
       const payload = {
         query: rawQuery,
-        session_id: null,
+        session_id: sessionId,
         location: currentLocationName,
       };
 
       // 3. Make HTTP POST request to the authenticated ORCA endpoint
       const endpointUrl = `${BACKEND_URL}/api/v1/orca/query`;
       console.log(`[ORCA API] Endpoint: ${endpointUrl}`);
-      console.log(`[ORCA API] Query: ${rawQuery}`);
+      console.log(`[ORCA API] Query: ${rawQuery}, Session: ${sessionId}`);
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 40000); // 40s timeout
