@@ -1,4 +1,4 @@
-import { OrcaResponse, StatusLevel, EvidenceItem, MapData } from '../types/orca';
+import { OrcaResponse, StatusLevel, EvidenceItem, MapData, LocationMapData, MapCandidate } from '../types/orca';
 import { BackendOrcaResponse } from '../types/backend';
 
 export function adaptBackendOrcaResponse(
@@ -153,6 +153,37 @@ export function adaptBackendOrcaResponse(
     }
   }
 
+  let locationMap: LocationMapData | null = null;
+  const recommendation = backendResponse.execution?.recommendation as any;
+  if (recommendation) {
+    const candidates: MapCandidate[] = [];
+
+    // Case A: nearest PFZ
+    if (recommendation.candidate && typeof recommendation.candidate.latitude === 'number') {
+      candidates.push(recommendation.candidate as MapCandidate);
+    }
+
+    // Case B: ranked candidates
+    if (Array.isArray(recommendation.ranked_candidate_spots)) {
+      recommendation.ranked_candidate_spots.forEach((c: any, index: number) => {
+        if (typeof c.latitude === 'number') {
+          candidates.push({
+            ...c,
+            rank: index + 1
+          } as MapCandidate);
+        }
+      });
+    }
+
+    if (candidates.length > 0) {
+      const planLoc = backendResponse.plan?.location as any;
+      locationMap = {
+        candidates,
+        origin: planLoc && typeof planLoc.latitude === 'number' ? planLoc : undefined
+      };
+    }
+  }
+
   // Safely extract agents called from multiple possible backend locations
   const agentsCalled = (backendResponse as any).agents_called ||
     (backendResponse as any).agent_execution?.agents_called ||
@@ -172,6 +203,7 @@ export function adaptBackendOrcaResponse(
     evidence: evidence,
     recommendation: undefined,
     map: map,
+    locationMap: locationMap,
     followUps: [],
     officialWarnings: backendResponse.execution?.context?.marine_safety?.data?.imd_warnings || [],
     analyticsData: {

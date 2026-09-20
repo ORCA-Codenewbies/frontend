@@ -16,6 +16,7 @@
     "react": "19.2.3",
     "react-native": "0.87.1",
     "react-native-config": "^1.7.2",
+    "react-native-maps": "^1.29.2",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-url-polyfill": "^4.0.0"
   },

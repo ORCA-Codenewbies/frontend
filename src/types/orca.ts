@@ -18,6 +18,26 @@ export interface MapData {
   bearingDegrees: number;
 }
 
+export type MapCandidate = {
+  latitude: number;
+  longitude: number;
+  distance_km?: number;
+  bearing?: string;
+  depth_m?: number;
+  source?: string;
+  landing_center?: string;
+  rank?: number;
+};
+
+export type LocationMapData = {
+  origin?: {
+    latitude: number;
+    longitude: number;
+    name?: string;
+  };
+  candidates: MapCandidate[];
+};
+
 /**
  * Backend response attribution. The backend already returns response segments
  * and the agent names responsible for each segment.
@@ -70,6 +90,7 @@ export interface OrcaResponse {
   evidence: EvidenceItem[];
   recommendation?: string;
   map?: MapData | null;
+  locationMap?: LocationMapData | null;
   followUps: string[];
   officialWarnings?: string[];
   isInland?: boolean;

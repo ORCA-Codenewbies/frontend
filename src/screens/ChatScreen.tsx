@@ -21,6 +21,7 @@ import { RecommendationCard } from '../components/chat/RecommendationCard';
 import { FollowUpChips } from '../components/chat/FollowUpChips';
 import { AnalysisIndicator } from '../components/chat/AnalysisIndicator';
 import { ErrorState } from '../components/chat/ErrorState';
+import { LocationMapCard } from '../components/chat/LocationMapCard';
 import { AnalyticsModal } from '../components/chat/AnalyticsModal'; // NEW IMPORT
 import { ChatMessage, AnalyticsData } from '../types/orca';
 
@@ -120,6 +121,7 @@ export const ChatScreen: React.FC = () => {
 
         {response.evidence?.length ? <EvidenceCard evidence={response.evidence} /> : null}
         {response.map ? <MapCard mapData={response.map} /> : null}
+        {response.locationMap ? <LocationMapCard data={response.locationMap} /> : null}
 
         {response.recommendation ? (
           <RecommendationCard recommendation={response.recommendation} status={response.status} />
