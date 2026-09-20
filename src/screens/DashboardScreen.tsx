@@ -17,16 +17,16 @@ import { PromptInput } from '../components/common/PromptInput';
 
 export const DashboardScreen: React.FC = () => {
   return (
-    <ImageBackground
-      source={require('../assets/Images/orca-background.jpg')}
-      style={styles.backgroundImage}
-      resizeMode="cover"
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.safeArea}
     >
-      <SafeAreaView style={styles.safeArea}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.flexContainer}
-        >
+      <ImageBackground
+        source={require('../assets/Images/orca-background.jpg')}
+        style={styles.backgroundImage}
+        resizeMode="cover"
+      >
+        <SafeAreaView style={styles.flexContainer}>
           {/* 1. HEADER (Logo + Hamburger, compact and clean, no profile icon) */}
           <Header />
 
@@ -56,9 +56,9 @@ export const DashboardScreen: React.FC = () => {
 
           {/* 6. ASK ORCA PROMPT (Prominent pill input with mic + blue circular send arrow) */}
           <PromptInput placeholder="Ask ORCA about the sea, fishing or weather..." />
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </ImageBackground>
+        </SafeAreaView>
+      </ImageBackground>
+    </KeyboardAvoidingView>
   );
 };
 
