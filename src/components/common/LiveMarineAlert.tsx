@@ -1,3 +1,4 @@
+// src/components/common/LiveMarineAlert.tsx
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
@@ -8,11 +9,18 @@ import {
   TouchableOpacity,
   Animated,
   Easing,
-  LayoutChangeEvent,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
 import { useApp } from '../../context/AppContext';
 import { BACKEND_URL } from '../../config/backendConfig';
 import { colors, shadows } from '../../theme/colors';
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 interface AlertData {
   id: string;
@@ -32,26 +40,15 @@ interface AlertResponse {
   cache_ttl_seconds: number;
 }
 
-// Pixels per second for the marquee scroll speed.
-const MARQUEE_SPEED_PX_PER_SEC = 32;
-// Gap (in px) inserted between repeated copies of the ticker content.
-const MARQUEE_GAP = 40;
-
 export const LiveMarineAlert: React.FC = () => {
-  const { currentLocation, isAuthenticated, navigateTo } = useApp();
+  const { currentLocation, isAuthenticated } = useApp();
   const [alertResponse, setAlertResponse] = useState<AlertResponse | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
+  
   const isFetchingRef = useRef(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(-20)).current;
   const pressAnim = useRef(new Animated.Value(1)).current;
-
-  // --- Marquee state/refs ---
-  const [contentWidth, setContentWidth] = useState(0);
-  const [containerWidth, setContainerWidth] = useState(0);
-  const marqueeX = useRef(new Animated.Value(0)).current;
-  const marqueeAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
-
-  // --- Live pulse dot ---
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   const fetchAlerts = useCallback(async () => {
@@ -64,8 +61,7 @@ export const LiveMarineAlert: React.FC = () => {
 
     try {
       const { lat, lng } = currentLocation.coordinates;
-      // TEMPORARY DEVELOPMENT TEST: appended &test_alert=true
-      const url = `${BACKEND_URL}/api/v1/marine-alerts?lat=${lat}&lon=${lng}&test_alert=true`;
+      const url = `${BACKEND_URL}/api/v1/marine-alerts?lat=${lat}&lon=${lng}`;
 
       const response = await fetch(url, {
         method: 'GET',
@@ -90,11 +86,7 @@ export const LiveMarineAlert: React.FC = () => {
 
   useEffect(() => {
     fetchAlerts();
-
-    // Refresh every 5 minutes (300000 ms)
     const intervalId = setInterval(fetchAlerts, 300000);
-
-    // Refresh on return from background
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active') {
         fetchAlerts();
@@ -108,7 +100,7 @@ export const LiveMarineAlert: React.FC = () => {
   }, [fetchAlerts]);
 
   useEffect(() => {
-    if (alertResponse && alertResponse.status === 'ALERT' && alertResponse.alerts.length > 0) {
+    if (alertResponse) {
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 1,
@@ -124,7 +116,6 @@ export const LiveMarineAlert: React.FC = () => {
     }
   }, [alertResponse, fadeAnim, slideAnim]);
 
-  // Subtle pulsing "LIVE" dot — loops for the lifetime of the component.
   useEffect(() => {
     const pulse = Animated.loop(
       Animated.sequence([
@@ -146,58 +137,38 @@ export const LiveMarineAlert: React.FC = () => {
     return () => pulse.stop();
   }, [pulseAnim]);
 
-  // Drive the marquee once we know both the content width (one copy of the
-  // repeated text block) and the visible container width. We render two
-  // back-to-back copies of the content and translate by exactly one copy's
-  // width so the loop restarts with zero visible jump.
-  useEffect(() => {
-    marqueeAnimationRef.current?.stop();
-    marqueeX.setValue(0);
-
-    if (contentWidth <= 0 || containerWidth <= 0) {
-      return;
-    }
-
-    const distance = contentWidth + MARQUEE_GAP;
-    const duration = (distance / MARQUEE_SPEED_PX_PER_SEC) * 1000;
-
-    const loop = Animated.loop(
-      Animated.timing(marqueeX, {
-        toValue: -distance,
-        duration,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      })
-    );
-    marqueeAnimationRef.current = loop;
-    loop.start();
-
-    return () => {
-      loop.stop();
-      marqueeAnimationRef.current = null;
-    };
-  }, [contentWidth, containerWidth, marqueeX]);
-
-  if (!isAuthenticated || !alertResponse || alertResponse.status !== 'ALERT' || alertResponse.alerts.length === 0) {
+  if (!isAuthenticated || !alertResponse) {
     return null;
   }
 
-  const activeAlert = alertResponse.alerts[0];
+  const activeAlert = alertResponse.alerts?.[0];
+  const locationName = currentLocation?.name || 'Local Waters';
 
-  const getSeverityAccent = (severity: string) => {
-    switch (severity) {
-      case 'CRITICAL':
-        return colors.statusDanger;
-      case 'HIGH':
-        return colors.statusDanger;
-      case 'WARNING':
-        return colors.statusCaution;
-      default:
-        return colors.statusCaution;
-    }
-  };
+  let statusColor = '#94A3B8';
+  let cardBg = '#F8FAFC';
+  let cardBorder = '#F1F5F9';
+  let collapsedTitle = 'Marine alert status unavailable';
+  let expandedTitle = 'Unavailable';
+  let description = 'ORCA could not verify the current live alert status.';
+  let icon = 'ℹ️';
 
-  const accent = getSeverityAccent(activeAlert.severity);
+  if (alertResponse.status === 'ALERT' && activeAlert) {
+    statusColor = '#DC2626';
+    cardBg = '#FFF5F5';
+    cardBorder = '#FEE2E2';
+    collapsedTitle = `${activeAlert.title} – ${locationName}`;
+    expandedTitle = activeAlert.title;
+    description = activeAlert.message;
+    icon = '⚠️';
+  } else if (alertResponse.status === 'CLEAR') {
+    statusColor = '#16A34A';
+    cardBg = '#F0FDF4';
+    cardBorder = '#DCFCE7';
+    collapsedTitle = 'No active marine alerts';
+    expandedTitle = 'Clear';
+    description = "No active marine or catastrophic alerts detected for your current location.\n\nThis status means no active alert has been detected by ORCA's live alert monitoring layer. For a complete voyage-safety assessment, use ORCA's marine safety analysis.";
+    icon = '✅';
+  }
 
   const handlePressIn = () => {
     Animated.timing(pressAnim, {
@@ -215,85 +186,97 @@ export const LiveMarineAlert: React.FC = () => {
     }).start();
   };
 
-  const handleTap = () => {
-    navigateTo('CHAT');
+  const toggleExpand = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setIsExpanded(!isExpanded);
   };
 
-  const onContainerLayout = (e: LayoutChangeEvent) => {
-    setContainerWidth(e.nativeEvent.layout.width);
+  const getRelativeTime = (dateString: string) => {
+    if (!dateString) return '';
+    const diffMins = Math.round((new Date().getTime() - new Date(dateString).getTime()) / 60000);
+    if (diffMins < 60) return `${diffMins} mins ago`;
+    const diffHrs = Math.floor(diffMins / 60);
+    if (diffHrs < 24) return `${diffHrs} hours ago`;
+    return `${Math.floor(diffHrs / 24)} days ago`;
   };
-
-  const onContentLayout = (e: LayoutChangeEvent) => {
-    setContentWidth(e.nativeEvent.layout.width);
-  };
-
-  // Build the compact ticker string, e.g.
-  // "CYCLONE · HIGH · 42.5 KM · ORCA_TEST · Test Marine Alert"
-  const tickerParts = [
-    activeAlert.type?.replace(/_/g, ' '),
-    activeAlert.severity,
-    activeAlert.distance_km != null ? `${activeAlert.distance_km} KM` : null,
-    activeAlert.source,
-    activeAlert.title,
-  ].filter(Boolean);
-  const tickerText = tickerParts.join('   ·   ');
 
   return (
-    <Animated.View
-      style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }], zIndex: 100 }}
-    >
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }], zIndex: 100 }}>
       <Animated.View style={{ transform: [{ scale: pressAnim }] }}>
         <TouchableOpacity
           activeOpacity={1}
-          onPress={handleTap}
+          onPress={toggleExpand}
           onPressIn={handlePressIn}
           onPressOut={handlePressOut}
-          style={[
-            styles.card,
-            shadows.sm ?? shadows.md,
-            { borderColor: `${accent}33`, borderLeftColor: accent },
-          ]}
+          style={[styles.card, shadows.sm, { backgroundColor: cardBg, borderColor: cardBorder }]}
         >
-          {/* Fixed, non-scrolling LIVE indicator */}
-          <View style={styles.liveSection}>
-            <Animated.View
-              style={[
-                styles.liveDot,
-                { backgroundColor: accent, opacity: pulseAnim },
-              ]}
-            />
-            <Text style={styles.liveLabel}>LIVE</Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          {/* Scrolling ticker */}
-          <View style={styles.tickerViewport} onLayout={onContainerLayout}>
-            <Animated.View
-              style={[
-                styles.tickerTrack,
-                { transform: [{ translateX: marqueeX }] },
-              ]}
-            >
-              <Text
-                style={styles.tickerText}
-                numberOfLines={1}
-                onLayout={onContentLayout}
-              >
-                {tickerText}
+          {!isExpanded ? (
+            // COLLAPSED STATE
+            <View style={styles.collapsedContent}>
+              <View style={styles.liveSection}>
+                <Animated.View style={[styles.liveDot, { backgroundColor: statusColor, opacity: pulseAnim }]} />
+                <Text style={[styles.liveLabelText, { color: statusColor }]}>LIVE</Text>
+              </View>
+              <View style={styles.divider} />
+              <Text style={styles.collapsedTitle} numberOfLines={1}>
+                {collapsedTitle}
               </Text>
-              <View style={{ width: MARQUEE_GAP }} />
-              <Text style={styles.tickerText} numberOfLines={1}>
-                {tickerText}
-              </Text>
-              <View style={{ width: MARQUEE_GAP }} />
-              <Text style={styles.tickerText} numberOfLines={1}>
-                {tickerText}
-              </Text>
-            </Animated.View>
-          </View>
+              <Text style={styles.chevron}>›</Text>
+            </View>
+          ) : (
+            // EXPANDED STATE
+            <View style={styles.expandedContent}>
+              <View style={styles.expandedHeader}>
+                <View style={[styles.warningIconContainer, { backgroundColor: statusColor }]}>
+                  <Text style={styles.warningIcon}>{icon}</Text>
+                </View>
+                <View style={styles.expandedHeaderMiddle}>
+                  <View style={styles.expandedLiveRow}>
+                    <View style={styles.liveSection}>
+                      <Animated.View style={[styles.liveDot, { backgroundColor: statusColor, opacity: pulseAnim }]} />
+                      <Text style={[styles.liveLabelText, { color: statusColor }]}>LIVE</Text>
+                    </View>
+                    <Text style={styles.timeText}>
+                      {activeAlert?.updated_at 
+                        ? getRelativeTime(activeAlert.updated_at) 
+                        : alertResponse.retrieved_at 
+                          ? getRelativeTime(alertResponse.retrieved_at) 
+                          : ''}
+                    </Text>
+                  </View>
+                  <Text style={styles.expandedTitle}>{expandedTitle}</Text>
+                  <Text style={styles.locationText}>{locationName}</Text>
+                </View>
+                <View style={styles.chevronUpContainer}>
+                  <Text style={styles.chevronUp}>^</Text>
+                </View>
+              </View>
 
-          <Text style={styles.chevron}>›</Text>
+              <Text style={styles.descriptionText}>{description}</Text>
+
+              {alertResponse.status === 'ALERT' && activeAlert && (
+                <>
+                  <View style={styles.pillsContainer}>
+                    <View style={[styles.pill, styles.pillRed]}>
+                      <Text style={[styles.pillText, styles.pillTextRed]}>{activeAlert.type.replace(/_/g, ' ')}</Text>
+                    </View>
+                    <View style={[styles.pill, styles.pillRed]}>
+                      <Text style={[styles.pillText, styles.pillTextRed]}>{activeAlert.severity}</Text>
+                    </View>
+                    {activeAlert.distance_km != null && (
+                      <View style={[styles.pill, styles.pillBlue]}>
+                        <Text style={[styles.pillText, styles.pillTextBlue]}>{activeAlert.distance_km} KM</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.sourceContainer}>
+                    <Text style={styles.sourceText}>ⓘ Source: {activeAlert.source}</Text>
+                  </View>
+                </>
+              )}
+            </View>
+          )}
         </TouchableOpacity>
       </Animated.View>
     </Animated.View>
@@ -302,20 +285,22 @@ export const LiveMarineAlert: React.FC = () => {
 
 const styles = StyleSheet.create({
   card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    marginHorizontal: 14,
+    marginHorizontal: 16,
     marginTop: 10,
     marginBottom: 6,
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1,
-    borderLeftWidth: 3,
-    paddingVertical: 10,
-    paddingLeft: 12,
-    paddingRight: 10,
-    height: 60,
     overflow: 'hidden',
+  },
+  collapsedContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 52,
+    paddingLeft: 14,
+    paddingRight: 12,
+  },
+  expandedContent: {
+    padding: 16,
   },
   liveSection: {
     flexDirection: 'row',
@@ -327,39 +312,116 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     marginRight: 6,
   },
-  liveLabel: {
-    fontSize: 10,
+  liveLabelText: {
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 1,
-    color: colors.textSecondary,
+    letterSpacing: 0.5,
   },
   divider: {
-    width: StyleSheet.hairlineWidth,
-    height: 18,
-    backgroundColor: colors.surfaceBorder,
-    marginHorizontal: 10,
+    width: 1,
+    height: 14,
+    backgroundColor: '#FECACA',
+    marginHorizontal: 12,
   },
-  tickerViewport: {
+  collapsedTitle: {
     flex: 1,
-    height: '100%',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  tickerTrack: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    position: 'absolute',
-    left: 0,
-  },
-  tickerText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
-    color: colors.textPrimary,
-    letterSpacing: 0.2,
+    color: '#1E293B',
   },
   chevron: {
-    fontSize: 18,
-    color: colors.textMuted,
-    marginLeft: 6,
+    fontSize: 20,
+    color: '#94A3B8',
+    marginLeft: 8,
+    marginBottom: 2,
+  },
+  expandedHeader: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  warningIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  warningIcon: {
+    fontSize: 20,
+    color: '#FFFFFF',
+  },
+  expandedHeaderMiddle: {
+    flex: 1,
+  },
+  expandedLiveRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  timeText: {
+    fontSize: 11,
+    color: '#94A3B8',
+  },
+  expandedTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 2,
+  },
+  locationText: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  chevronUpContainer: {
+    paddingLeft: 8,
+  },
+  chevronUp: {
+    fontSize: 24,
+    color: '#94A3B8',
+    lineHeight: 24,
+  },
+  descriptionText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#334155',
+    marginBottom: 16,
+  },
+  pillsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  pill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  pillRed: {
+    backgroundColor: '#FEE2E2',
+  },
+  pillBlue: {
+    backgroundColor: '#E0F2FE',
+  },
+  pillText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  pillTextRed: {
+    color: '#B91C1C',
+  },
+  pillTextBlue: {
+    color: '#0369A1',
+  },
+  sourceContainer: {
+    borderTopWidth: 1,
+    borderTopColor: '#FEE2E2',
+    paddingTop: 12,
+  },
+  sourceText: {
+    fontSize: 11,
+    color: '#94A3B8',
   },
 });
