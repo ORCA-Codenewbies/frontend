@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Linking } from 'react-native';
 import { Session, User } from '@supabase/supabase-js';
 import { ScreenType } from '../types/navigation';
 import { MarineLocation, UserProfile } from '../types/user';
@@ -21,8 +22,9 @@ interface AppContextType {
   updateUser: (data: Partial<UserProfile>) => void;
   signInWithEmail: (email: string, password: string) => Promise<{ data: any; error: any }>;
   signUpWithEmail: (email: string, password: string) => Promise<{ data: any; error: any }>;
+  signInWithGoogle: () => Promise<{ data: any; error: any }>;
+  resendVerificationEmail: (email: string) => Promise<{ data: any; error: any }>;
   login: (phone?: string) => void;
-  demoLogin: () => void;
   logout: () => Promise<void>;
   completeLocationSetup: (location: MarineLocation) => void;
 
@@ -89,7 +91,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Navigation stack: starts at AUTH until verified
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('AUTH');
-  const [, setHistory] = useState<ScreenType[]>(['AUTH']);
+  const [history, setHistory] = useState<ScreenType[]>(['AUTH']);
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
 
   // Conversational chat
@@ -105,8 +107,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let isMounted = true;
 
     async function initSession() {
+
       try {
+        // 1. Check for pending deep link callback to prevent race condition
+        let hasPendingAuthCallback = false;
+        try {
+          const initialUrl = await Linking.getInitialURL();
+          hasPendingAuthCallback = !!(initialUrl && initialUrl.includes('code='));
+        } catch (linkErr) {
+          console.warn('[Supabase Auth] Failed to get initial URL during initSession:', linkErr);
+        }
+
+        // 2. Fetch current session
         const { data, error } = await supabase.auth.getSession();
+
         if (error) {
           console.warn('[Supabase Auth] Session restore error:', error.message);
         }
@@ -114,21 +128,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!isMounted) return;
 
         const currentSession = data?.session ?? null;
+
         if (currentSession?.user) {
           setSession(currentSession);
           setSupabaseUser(currentSession.user);
           setIsAuthenticated(true);
+
           setUser((prev) => ({
             ...prev,
             id: currentSession.user.id,
             name: currentSession.user.email?.split('@')[0] || prev.name,
           }));
           setCurrentScreen('DASHBOARD');
+
+          setHistory(['DASHBOARD']);
         } else {
+          // 3. Prevent race condition: Do NOT apply unauthenticated state if a callback is currently resolving
+          if (hasPendingAuthCallback) {
+            console.log('[Diagnostic] initSession() deferring AUTH state due to pending callback.');
+            return;
+          }
+
           setSession(null);
           setSupabaseUser(null);
           setIsAuthenticated(false);
+
           setCurrentScreen('AUTH');
+
+          setHistory(['AUTH']);
         }
       } catch (err) {
         console.error('[Supabase Auth] Session initialization error:', err);
@@ -136,7 +163,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setSession(null);
           setSupabaseUser(null);
           setIsAuthenticated(false);
+
           setCurrentScreen('AUTH');
+
+          setHistory(['AUTH']);
         }
       } finally {
         if (isMounted) {
@@ -152,7 +182,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!isMounted) return;
-      console.log(`[Supabase Auth] Auth event: ${event}`);
 
       switch (event) {
         case 'SIGNED_IN':
@@ -162,6 +191,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setSession(newSession);
             setSupabaseUser(newSession.user);
             setIsAuthenticated(true);
+
             setUser((prev) => ({
               ...prev,
               id: newSession.user.id,
@@ -169,6 +199,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }));
             if (event === 'SIGNED_IN') {
               setCurrentScreen('DASHBOARD');
+
+              setHistory(['DASHBOARD']);
             }
           }
           break;
@@ -177,7 +209,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setSession(null);
           setSupabaseUser(null);
           setIsAuthenticated(false);
+
           setCurrentScreen('AUTH');
+
+          setHistory(['AUTH']);
           setMessages([]);
           break;
 
@@ -190,6 +225,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       isMounted = false;
       subscription.unsubscribe();
+    };
+  }, []);
+
+  const lastProcessedUrl = useRef<string | null>(null);
+
+  // 2. Handle Deep Links for Authentication (e.g. email confirmation)
+  useEffect(() => {
+    let isMounted = true;
+
+    const handleDeepLink = async (url: string | null | undefined) => {
+      console.log('[Supabase Auth] Authentication callback received.');
+      if (!url || !isMounted) return;
+      if (url === lastProcessedUrl.current) return; // Prevent processing the same URL twice
+
+      try {
+        const urlObj = new URL(url);
+        // Supabase sends error params if the link is invalid or expired
+        const error = urlObj.searchParams.get('error');
+        const errorDescription = urlObj.searchParams.get('error_description');
+
+        if (error) {
+
+          lastProcessedUrl.current = url;
+          return;
+        }
+
+        const code = urlObj.searchParams.get('code');
+
+        if (code) {
+          lastProcessedUrl.current = url;
+          const { data: exchangeData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+
+          if (exchangeError) {
+            console.error('[Supabase Auth] Deep link session exchange error:', exchangeError);
+          } else {
+            // ONLY FOR DEBUGGING
+            const debugSess = await supabase.auth.getSession();
+
+          }
+        }
+      } catch (err) {
+        console.warn('[Supabase Auth] Failed to parse deep link URL:', err);
+      }
+    };
+
+    // Handle cold start deep link
+    Linking.getInitialURL().then(handleDeepLink);
+
+    // Handle warm start deep link
+    const linkSubscription = Linking.addEventListener('url', (event) => handleDeepLink(event.url));
+
+    return () => {
+      isMounted = false;
+      linkSubscription.remove();
     };
   }, []);
 
@@ -226,6 +315,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           name: sess.user.email?.split('@')[0] || prev.name,
         }));
         setCurrentScreen('DASHBOARD');
+        setHistory(['DASHBOARD']);
       }
 
       return result;
@@ -239,28 +329,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const result = await supabase.auth.signUp({
         email: email.trim(),
         password,
+        options: {
+          emailRedirectTo: 'orca://auth/callback',
+        },
       });
 
-      const sess = result.data?.session;
-      if (sess && sess.user) {
-        setSession(sess);
-        setSupabaseUser(sess.user);
-        setIsAuthenticated(true);
-        setUser((prev) => ({
-          ...prev,
-          id: sess.user.id,
-          name: sess.user.email?.split('@')[0] || prev.name,
-        }));
-        setCurrentScreen('DASHBOARD');
-      }
-
+      // Do NOT set authenticated state or navigate after signup.
+      // The user must confirm their email via the confirmation link first,
+      // then sign in normally with email + password.
       return result;
     } catch (err: any) {
       return { data: { user: null, session: null }, error: err };
     }
   }, []);
 
-  // Legacy login handler maintained for compatibility
+  const signInWithGoogle = useCallback(async () => {
+
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: 'orca://auth/callback',
+          skipBrowserRedirect: true,
+        },
+      });
+
+
+      if (error) {
+        return { data: null, error };
+      }
+
+      if (data?.url) {
+        await Linking.openURL(data.url);
+      }
+
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: err };
+    }
+  }, []);
+
+  // Resend the signup confirmation email using Supabase's resend API
+  const resendVerificationEmail = useCallback(async (email: string) => {
+    try {
+      const result = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim(),
+        options: {
+          emailRedirectTo: 'orca://auth/callback',
+        },
+      });
+      return result;
+    } catch (err: any) {
+      return { data: null, error: err };
+    }
+  }, []);
+
   const login = useCallback((phone?: string) => {
     console.warn(
       '[Supabase Auth] Simulated login is deprecated. Real authentication requires Supabase session.'
@@ -270,30 +394,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
-  // SIH Demo: bypass Supabase auth entirely, set app into authenticated state
-  const demoLogin = useCallback(() => {
-    setIsAuthenticated(true);
-    setIsAuthLoading(false);
-    setUser((prev) => ({
-      ...prev,
-      id: 'demo_sih_user',
-      name: 'Subhash',
-    }));
-    setCurrentScreen('DASHBOARD');
-  }, []);
-
   // Real Supabase Logout
   const logout = useCallback(async () => {
     setIsDrawerOpen(false);
     try {
-      await supabase.auth.signOut();
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      // Note: State cleanup is now completely handled by onAuthStateChange('SIGNED_OUT')
     } catch (err) {
-      console.warn('[Supabase Auth] Error signing out:', err);
-    } finally {
+      console.error('[Supabase Auth] Logout Error:', err);
+      // Fallback cleanup if error occurs (onAuthStateChange might not fire)
       setSession(null);
       setSupabaseUser(null);
       setIsAuthenticated(false);
+
       setCurrentScreen('AUTH');
+
+      setHistory(['AUTH']);
+    } finally {
       setMessages([]);
       setActiveSessionId(null);
     }
@@ -304,6 +422,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUser((prev) => ({ ...prev, baseLocation: `${loc.name}, ${loc.state}` }));
     setHasCompletedLocationSetup(true);
     setCurrentScreen('DASHBOARD');
+    setHistory(['DASHBOARD']);
   }, []);
 
   // Navigation handlers
@@ -315,12 +434,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const goBack = useCallback(() => {
     setHistory((prev) => {
+      // If we are at the root or no previous screens, do not go back further
       if (prev.length <= 1) {
-        setCurrentScreen('DASHBOARD');
-        return ['DASHBOARD'];
+        return prev;
       }
       const newHistory = prev.slice(0, -1);
-      setCurrentScreen(newHistory[newHistory.length - 1]);
+      const prevScreen = newHistory[newHistory.length - 1];
+      setCurrentScreen(prevScreen);
       return newHistory;
     });
   }, []);
@@ -395,12 +515,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           prev.map((msg) =>
             msg.id === analyzingMsgId
               ? {
-                  id: `orca-${Date.now()}`,
-                  sender: 'orca',
-                  timestamp: Date.now(),
-                  isAnalyzing: false,
-                  response,
-                }
+                id: `orca-${Date.now()}`,
+                sender: 'orca',
+                timestamp: Date.now(),
+                isAnalyzing: false,
+                response,
+              }
               : msg
           )
         );
@@ -409,24 +529,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           prev.map((msg) =>
             msg.id === analyzingMsgId
               ? {
-                  id: `orca-err-${Date.now()}`,
-                  sender: 'orca',
+                id: `orca-err-${Date.now()}`,
+                sender: 'orca',
+                timestamp: Date.now(),
+                isAnalyzing: false,
+                response: {
+                  id: `err-${Date.now()}`,
                   timestamp: Date.now(),
-                  isAnalyzing: false,
-                  response: {
-                    id: `err-${Date.now()}`,
-                    timestamp: Date.now(),
-                    status: 'CAUTION',
-                    isError: true,
-                    errorType: 'technical_failure',
-                    context: { location: currentLocation.name },
-                    message: "Couldn't check",
-                    explanation: 'ORCA এখন এই তথ্যটি যাচাই করতে পারছে না।',
-                    evidence: [],
-                    recommendation: 'দয়া করে কিছুক্ষণ পর আবার চেষ্টা করুন।',
-                    followUps: ['Try Again ↻'],
-                  },
-                }
+                  status: 'CAUTION',
+                  isError: true,
+                  errorType: 'technical_failure',
+                  context: { location: currentLocation.name },
+                  message: "Couldn't check",
+                  explanation: 'ORCA এখন এই তথ্যটি যাচাই করতে পারছে না।',
+                  evidence: [],
+                  recommendation: 'দয়া করে কিছুক্ষণ পর আবার চেষ্টা করুন।',
+                  followUps: ['Try Again ↻'],
+                },
+              }
               : msg
           )
         );
@@ -493,8 +613,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updateUser,
       signInWithEmail,
       signUpWithEmail,
+      signInWithGoogle,
+      resendVerificationEmail,
       login,
-      demoLogin,
       logout,
       completeLocationSetup,
       currentLocation,
@@ -527,8 +648,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updateUser,
       signInWithEmail,
       signUpWithEmail,
+      signInWithGoogle,
+      resendVerificationEmail,
       login,
-      demoLogin,
       logout,
       completeLocationSetup,
       currentLocation,

@@ -1,8 +1,9 @@
-import React from 'react';
-import { View, StyleSheet, StatusBar, ActivityIndicator } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, StyleSheet, StatusBar, ActivityIndicator, BackHandler } from 'react-native';
 import { useApp } from '../context/AppContext';
 import { colors } from '../theme/colors';
 import { NavigationDrawer } from '../components/common/NavigationDrawer';
+import { LiveMarineAlert } from '../components/common/LiveMarineAlert';
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -20,7 +21,26 @@ import { AboutScreen } from '../screens/AboutScreen';
 
 export const AppNavigator: React.FC = () => {
   const insets = useSafeAreaInsets();
-  const { isAuthLoading, isAuthenticated, hasCompletedLocationSetup, currentScreen } = useApp();
+  const { isAuthLoading, isAuthenticated, hasCompletedLocationSetup, currentScreen, goBack } = useApp();
+
+  useEffect(() => {
+    const onHardwareBackPress = () => {
+      // If we are unauthenticated or at the root dashboard, let default OS back behavior happen (exit app)
+      if (!isAuthenticated || currentScreen === 'AUTH' || currentScreen === 'DASHBOARD') {
+        return false; 
+      }
+      // Otherwise, we have screens in history. Intercept back press and go back in history.
+      goBack();
+      return true;
+    };
+
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', onHardwareBackPress);
+    return () => backHandler.remove();
+  }, [isAuthenticated, currentScreen, goBack]);
+
+  useEffect(() => {
+    console.log(`[ORCA-AUTH-DEBUG] AppNavigator:\n{\n  isAuthLoading: ${isAuthLoading},\n  isAuthenticated: ${isAuthenticated},\n  currentScreen: ${currentScreen}\n}`);
+  }, [isAuthLoading, isAuthenticated, currentScreen]);
 
   if (isAuthLoading) {
     return (
@@ -62,9 +82,12 @@ export const AppNavigator: React.FC = () => {
     }
   };
 
+  const isAuthOrSetup = !isAuthenticated || currentScreen === 'AUTH' || !hasCompletedLocationSetup || currentScreen === 'LOCATION_SETUP';
+
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <StatusBar barStyle="dark-content" />
+      {!isAuthOrSetup && <LiveMarineAlert />}
       {renderActiveScreen()}
       {/* Drawer overlay */}
       <NavigationDrawer />

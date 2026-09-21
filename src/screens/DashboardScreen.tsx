@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Header } from '../components/common/Header';
 import { LocationSelector } from '../components/common/LocationSelector';
-import { MarineAlert } from '../components/dashboard/MarineAlert';
+
 import { Greeting } from '../components/dashboard/Greeting';
 import { QuickQuestions } from '../components/dashboard/QuickQuestions';
 import { PromptInput } from '../components/common/PromptInput';
@@ -41,8 +41,7 @@ export const DashboardScreen: React.FC = () => {
           >
             {/* Top Section: Marine Alert + Greeting */}
             <View style={styles.topSection}>
-              {/* 3. CONDITIONAL MARINE ALERT (Only rendered when there is active risk) */}
-              <MarineAlert />
+              {/* 3. CONDITIONAL MARINE ALERT (REMOVED - Replaced globally) */}
 
               {/* 4. GREETING ("Hi, how can I help you today?") */}
               <Greeting />
