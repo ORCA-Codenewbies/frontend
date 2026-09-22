@@ -23,25 +23,43 @@ export function adaptBackendOrcaResponse(
   }
 
   let status: StatusLevel = 'CAUTION';
-  const decision = backendResponse.execution?.recommendation?.decision?.toUpperCase();
+  const rec = backendResponse.execution?.recommendation as any;
+  const decision = rec?.decision?.toUpperCase();
+  const recRisk = rec?.risk_level?.toUpperCase();
 
-  if (decision === 'SAFE' || decision === 'RECOMMEND') {
-    status = 'SAFE';
-  } else if (decision === 'CAUTION' || decision === 'EXERCISE_CAUTION') {
-    status = 'CAUTION';
-  } else if (decision === 'RESTRICTED' || decision === 'DANGER' || decision === 'CANCEL_VOYAGE') {
+  const safeDecisions = [
+    'SAFE',
+    'RECOMMEND',
+    'CANDIDATE_SEARCH_COMPLETE',
+    'OPTIMAL_FISHING_VOYAGE',
+    'CLEAR_WEATHER_LOW_YIELD',
+    'ROUTE_GENERATED',
+  ];
+  const dangerDecisions = ['RESTRICTED', 'DANGER', 'CANCEL_VOYAGE'];
+  const cautionDecisions = ['CAUTION', 'EXERCISE_CAUTION'];
+
+  if (dangerDecisions.includes(decision) || recRisk === 'DANGER' || recRisk === 'CRITICAL' || recRisk === 'RESTRICTED') {
     status = 'DANGER';
+  } else if (safeDecisions.includes(decision)) {
+    status = 'SAFE';
+  } else if (cautionDecisions.includes(decision)) {
+    status = 'CAUTION';
+  } else if (recRisk === 'SAFE' || recRisk === 'LOW') {
+    status = 'SAFE';
+  } else if (recRisk === 'CAUTION' || recRisk === 'MEDIUM') {
+    status = 'CAUTION';
   }
 
-  const riskLevel = backendResponse.execution?.context?.risk?.data?.risk_level;
-  const safetyClearance = backendResponse.execution?.context?.safety_rules?.data?.safety_clearance;
+  const riskLevel = backendResponse.execution?.context?.risk?.data?.risk_level?.toUpperCase();
+  const safetyClearance = backendResponse.execution?.context?.safety_rules?.data?.safety_clearance?.toUpperCase();
 
   if (status === 'SAFE') {
-    if (riskLevel === 'UNKNOWN' || safetyClearance === 'UNKNOWN' || !riskLevel || !safetyClearance) {
+    if (riskLevel === 'UNKNOWN' || safetyClearance === 'UNKNOWN') {
       status = 'CAUTION';
-    }
-    if (riskLevel === 'DANGER' || safetyClearance === 'RESTRICTED') {
+    } else if (riskLevel === 'DANGER' || riskLevel === 'CRITICAL' || safetyClearance === 'RESTRICTED') {
       status = 'DANGER';
+    } else if (!riskLevel && !safetyClearance && recRisk !== 'SAFE' && recRisk !== 'LOW' && decision !== 'SAFE' && decision !== 'RECOMMEND') {
+      status = 'CAUTION';
     }
   }
 
@@ -54,8 +72,7 @@ export function adaptBackendOrcaResponse(
     else if (freshness.status === 'unknown') contextTime = 'Unknown Freshness';
   }
 
-  const recommendationData = backendResponse.execution?.recommendation as any;
-  let explanation = recommendationData?.reasoning || recommendationData?.reason || '';
+  let explanation = rec?.reasoning || rec?.reason || '';
   if (!explanation) {
     explanation = status === 'SAFE'
       ? 'Conditions have been verified as safe.'
@@ -160,7 +177,17 @@ export function adaptBackendOrcaResponse(
 
     // Case A: nearest PFZ
     if (recommendation.candidate && typeof recommendation.candidate.latitude === 'number') {
-      candidates.push(recommendation.candidate as MapCandidate);
+      const cand = recommendation.candidate;
+      candidates.push({
+        ...cand,
+        distance_km:
+          cand.distance_km ??
+          cand.query_distance_km ??
+          cand.reachability_km ??
+          cand.distance_from_landmark_km,
+        bearing: cand.bearing ?? cand.bearing_from_landmark,
+        rank: cand.rank ?? 1,
+      } as MapCandidate);
     }
 
     // Case B: ranked candidates
@@ -169,7 +196,13 @@ export function adaptBackendOrcaResponse(
         if (typeof c.latitude === 'number') {
           candidates.push({
             ...c,
-            rank: index + 1
+            distance_km:
+              c.distance_km ??
+              c.query_distance_km ??
+              c.reachability_km ??
+              c.distance_from_landmark_km,
+            bearing: c.bearing ?? c.bearing_from_landmark,
+            rank: c.rank ?? (index + 1),
           } as MapCandidate);
         }
       });
@@ -201,7 +234,7 @@ export function adaptBackendOrcaResponse(
     message: backendResponse.response || 'ORCA Analysis Complete',
     explanation: explanation,
     evidence: evidence,
-    recommendation: undefined,
+    recommendation: rec?.recommendation_text || rec?.action_title || undefined,
     map: map,
     locationMap: locationMap,
     followUps: [],
